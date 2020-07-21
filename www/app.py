@@ -56,7 +56,7 @@ def datetime_filter(t):
     elif dis < 3600:
         return '%s分钟前'%(dis//60)
     elif dis < 86400:
-        return '%s分钟前'%(dis//3600)
+        return '%s小时前'%(dis//3600)
     elif dis <604800:
         return '%s天前'%(dis//86400)
     else:
