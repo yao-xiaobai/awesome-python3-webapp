@@ -91,6 +91,7 @@ async def index(request,*, page='1'):
         '__user__':request.__user__
     }
 
+#点击某个blog，进入该blog的主页面
 @get('/blog/{id}')
 async def get_blog(id,request):
     blog = await Blog.find(id)
@@ -105,19 +106,43 @@ async def get_blog(id,request):
         '__user__':request.__user__
     }
 
-#注册页
+#注册页，提交表单后会跳转至'api/users'视图函数
 @get('/register')
 def register():
     return {
         '__template__': 'register.html'
     }
 
-#登录页
+#登录页，提交表单后会跳转至'api/authenticate'视图函数
 @get('/signin')
 def signin():
     return {
         '__template__': 'signin.html'
     }
+
+#注册API
+@post('/api/users')
+async def api_register_user(*, email, name, passwd):
+    if not name or not name.strip():
+        raise APIValueError('name')
+    if not email or not _RE_EMAIL.match(email):
+        raise APIValueError('email')
+    if not passwd or not _RE_SHA1.match(passwd):
+        raise APIValueError('passwd')
+    users = await User.findall(selectField='email',where='email=?',args=[email])
+    if len(users) > 0:
+        raise APIError('register:failed', 'email', 'Email is already in use.')
+    uid = next_id()
+    sha1_passwd = '%s:%s' % (uid, passwd)
+    user = User(id=uid, name=name.strip(), email=email, password=hashlib.sha1(sha1_passwd.encode('utf-8')).hexdigest(), image='http://www.gravatar.com/avatar/%s?d=mm&s=120' % hashlib.md5(email.encode('utf-8')).hexdigest())
+    await user.save()
+    # make session cookie:
+    r = web.Response()
+    r.set_cookie(COOKIE_NAME, user2cookie(user, 86400), max_age=86400, httponly=True)
+    user.password = '******'
+    r.content_type = 'application/json'
+    r.body = json.dumps(user, ensure_ascii=False).encode('utf-8')
+    return r
 
 #登录API
 @post('/api/authenticate')
@@ -149,15 +174,18 @@ async def authenticate(*, email, passwd):
 @get('/signout')
 def signout(request):
     referer = request.headers.get('Referer')
+    #返回前一页或者首页
     r = web.HTTPFound(referer or '/')
     r.set_cookie(COOKIE_NAME, '-deleted-', max_age=0, httponly=True)
     logging.info('user signed out.')
     return r
 
+#拦截器会对返回结果进行处理，最终返回'/manage/comments'页
 @get('/manage/')
 def manage():
     return 'redirect:/manage/comments'
 
+#后台管理页，评论页
 @get('/manage/comments')
 def manage_comments(request,*, page='1'):
     return {
@@ -166,6 +194,7 @@ def manage_comments(request,*, page='1'):
         '__user__':request.__user__
     }
 
+#后台管理页，blog页
 @get('/manage/blogs')
 def manage_blogs(request,*,page='1'):
     return {
@@ -174,6 +203,7 @@ def manage_blogs(request,*,page='1'):
         '__user__':request.__user__
     }
 
+#后台管理页，创建blog页
 @get('/manage/blogs/create')
 def manage_create_blog(request):
     return {
@@ -183,6 +213,7 @@ def manage_create_blog(request):
         '__user__':request.__user__
     }
 
+#后台管理页，编辑blog页
 @get('/manage/blogs/edit')
 def manage_edit_blog(request,*, id):
     return {
@@ -192,6 +223,7 @@ def manage_edit_blog(request,*, id):
         '__user__':request.__user__
     }
 
+#后台管理页，查看注册用户页
 @get('/manage/users')
 def manage_users(request,*, page='1'):
     return {
@@ -200,6 +232,7 @@ def manage_users(request,*, page='1'):
         '__user__':request.__user__
     }
 
+#获取评论,以json文件形式显示
 @get('/api/comments')
 async def api_comments(*, page='1'):
     page_index = get_page_index(page)
@@ -211,6 +244,7 @@ async def api_comments(*, page='1'):
     comments = await Comment.findall(orderby='create_at desc', limit=(p.offset, p.limit))
     return dict(page=p, comments=comments)
 
+#创建评论
 @post('/api/blogs/{id}/comments')
 async def api_create_comment(id, request, *, content):
     user = request.__user__
@@ -225,6 +259,7 @@ async def api_create_comment(id, request, *, content):
     await comment.save()
     return comment
 
+#后台管理，删除评论
 @post('/api/comments/{id}/delete')
 async def api_delete_comments(id, request):
     check_admin(request)
@@ -234,6 +269,7 @@ async def api_delete_comments(id, request):
     await c.remove(pk=id)
     return dict(id=id)
 
+#以json形式返回所有注册用户
 @get('/api/users')
 async def api_get_users(*, page='1'):
     page_index = get_page_index(page)
@@ -247,30 +283,7 @@ async def api_get_users(*, page='1'):
         u.password= '******'
     return dict(page=p, users=users)
 
-#注册API
-@post('/api/users')
-async def api_register_user(*, email, name, passwd):
-    if not name or not name.strip():
-        raise APIValueError('name')
-    if not email or not _RE_EMAIL.match(email):
-        raise APIValueError('email')
-    if not passwd or not _RE_SHA1.match(passwd):
-        raise APIValueError('passwd')
-    users = await User.findall(selectField='email',where='email=?',args=[email])
-    if len(users) > 0:
-        raise APIError('register:failed', 'email', 'Email is already in use.')
-    uid = next_id()
-    sha1_passwd = '%s:%s' % (uid, passwd)
-    user = User(id=uid, name=name.strip(), email=email, password=hashlib.sha1(sha1_passwd.encode('utf-8')).hexdigest(), image='http://www.gravatar.com/avatar/%s?d=mm&s=120' % hashlib.md5(email.encode('utf-8')).hexdigest())
-    await user.save()
-    # make session cookie:
-    r = web.Response()
-    r.set_cookie(COOKIE_NAME, user2cookie(user, 86400), max_age=86400, httponly=True)
-    user.password = '******'
-    r.content_type = 'application/json'
-    r.body = json.dumps(user, ensure_ascii=False).encode('utf-8')
-    return r
-
+#以json形式显示所有blog
 @get('/api/blogs')
 async def api_blogs(*,page='1'):
     page_index = get_page_index(page)
@@ -282,7 +295,7 @@ async def api_blogs(*,page='1'):
     blogs = await Blog.findall(orderby='create_at desc', limit=(p.offset, p.limit))
     return dict(page=p, blogs=blogs)
 
-
+#以json形式显示某个id的blog
 @get('/api/blogs/{id}')
 async def api_get_blog(*,id):
     blog = await Blog.find(id)
@@ -303,7 +316,7 @@ async def api_create_blog(request,*,name,summary,content):
     await blog.save()
     return blog
 
-
+#修改日志
 @post('/api/blogs/{id}')
 async def api_update_blog(id, request, *, name, summary, content):
     check_admin(request)
@@ -320,6 +333,7 @@ async def api_update_blog(id, request, *, name, summary, content):
     await blog.update()
     return blog
 
+#删除评论
 @post('/api/blogs/{id}/delete')
 async def api_delete_blog(request, *, id):
     check_admin(request)

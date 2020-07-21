@@ -64,8 +64,7 @@ def datetime_filter(t):
         return '%s年%s月%s日前'%(dt.year,dt.month,dt.day)
 
 # middleware 拦截器
-# 一个URL函数在被处理前，可以经过一系列 middleware 处理
-
+# 一个URL函数在被调用前，可以经过一系列 middleware 处理
 
 async def logger_factory(app,handler):
     async def logger(request):
@@ -93,18 +92,23 @@ async def auth_factory(app,handler):
         cookie_str = request.cookies.get(COOKIE_NAME)
         if cookie_str:
             user = await cookie2user(cookie_str)
+            #从客户端cookies读到的用户设置为当前用户
             if user:
                 logging.info('set current user:%s'%user.email)
                 request.__user__ = user
+        #如果用户端请求的是管理页而并没有发送cookies信息或者cookies信息中的user不是管理员，返回首页
         if request.path.startswith('/manage/') and ( request.__user__ is None or not request.__user__.admin):
             return web.HTTPFound('/signin')
         return ( await handler(request) )
     return auth
 
+#视图函数处理后的结果，进行最终处理
 async def response_factory(app,handler):
     async def response(request):
         logging.info('Response handler...')
+        #拦截器只会run最后一个handler(request)
         r = await handler(request)
+        #视图函数返回的是字节流，无需处理，直接发送至前端
         if isinstance(r,web.StreamResponse):
             return r
         if isinstance(r, bytes):
